@@ -66,7 +66,7 @@ public sealed class BarsVisualizerPlugin : IVisualizerPlugin
             float value = Math.Clamp(frame.Bands[i], 0f, 1f);
             UpdatePeak(i, value);
 
-            float hue = 240f - 240f * i / bandCount; // синий (бас) -> красный (верха)
+            float hue = (350f + 55f * i / bandCount) % 360f; // тёплая гамма: малиновый бас -> жёлтые верха
             var litColor = SKColor.FromHsv(hue, 85, 95);
             var dimColor = SKColor.FromHsv(hue, 55, 12);
 
