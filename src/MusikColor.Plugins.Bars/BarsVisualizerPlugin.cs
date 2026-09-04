@@ -8,10 +8,14 @@ namespace MusikColor.Plugins.Bars;
 /// Классический "блочный" эквалайзер — как в железных LED-панелях и
 /// старых Winamp-визуализациях: каждая полоса рисуется не сплошным
 /// прямоугольником, а стопкой отдельных светящихся сегментов с зазорами,
-/// плюс мягкое свечение под ними. Цвет столбца зависит от частоты
-/// (радуга: синий бас -> красные верха). Сверху — "пиковый" сегмент,
-/// который держится и медленно опадает, как индикатор пика на настоящих
+/// плюс мягкое свечение под ними. Сверху — "пиковый" сегмент, который
+/// держится и медленно опадает, как индикатор пика на настоящих
 /// LED-эквалайзерах.
+///
+/// Цвет столбца не завязан на частоту — каждый бар раз в 5 секунд сам
+/// выбирает случайный оттенок по всей палитре и плавно (не рывком)
+/// перетекает к нему. Смена по каждому бару стартует со своим случайным
+/// сдвигом по фазе, чтобы вся панель не переключалась разом одним щелчком.
 /// </summary>
 public sealed class BarsVisualizerPlugin : IVisualizerPlugin
 {
@@ -24,13 +28,28 @@ public sealed class BarsVisualizerPlugin : IVisualizerPlugin
     private const float PeakHoldFrames = 30f;
     private const float PeakFallSpeed = 0.01f;
 
+    private static readonly TimeSpan ChangeInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(600);
+
+    private readonly Random _random = new();
+
     private float[] _peak = Array.Empty<float>();
     private float[] _peakHoldTimer = Array.Empty<float>();
+    private ColorState[] _colors = Array.Empty<ColorState>();
+
+    private struct ColorState
+    {
+        public float FromHue;
+        public float ToHue;
+        public DateTime TransitionStart;
+        public DateTime NextChangeAt;
+    }
 
     public void Init(VisualizerContext context)
     {
         _peak = new float[context.BandCount];
         _peakHoldTimer = new float[context.BandCount];
+        _colors = Array.Empty<ColorState>(); // достроится лениво в Render под реальный bandCount
     }
 
     public void Render(SKCanvas canvas, SKImageInfo info, FrequencyFrame frame)
@@ -43,10 +62,30 @@ public sealed class BarsVisualizerPlugin : IVisualizerPlugin
             return;
         }
 
+        var now = DateTime.UtcNow;
+
         if (_peak.Length != bandCount)
         {
             _peak = new float[bandCount];
             _peakHoldTimer = new float[bandCount];
+        }
+
+        if (_colors.Length != bandCount)
+        {
+            _colors = new ColorState[bandCount];
+            for (int i = 0; i < bandCount; i++)
+            {
+                float initialHue = RandomHue();
+                _colors[i] = new ColorState
+                {
+                    FromHue = initialHue,
+                    ToHue = initialHue,
+                    TransitionStart = now,
+                    // Случайный сдвиг фазы в пределах интервала — иначе все
+                    // бары синхронно щёлкнут цветом одновременно.
+                    NextChangeAt = now + TimeSpan.FromMilliseconds(_random.NextDouble() * ChangeInterval.TotalMilliseconds),
+                };
+            }
         }
 
         float slotWidth = (float)info.Width / bandCount;
@@ -66,7 +105,7 @@ public sealed class BarsVisualizerPlugin : IVisualizerPlugin
             float value = Math.Clamp(frame.Bands[i], 0f, 1f);
             UpdatePeak(i, value);
 
-            float hue = (350f + 55f * i / bandCount) % 360f; // тёплая гамма: малиновый бас -> жёлтые верха
+            float hue = AdvanceAndGetHue(i, now);
             var litColor = SKColor.FromHsv(hue, 85, 95);
             var dimColor = SKColor.FromHsv(hue, 55, 12);
 
@@ -105,6 +144,46 @@ public sealed class BarsVisualizerPlugin : IVisualizerPlugin
             canvas.DrawRect(new SKRect(0, 0, info.Width, info.Height), flashPaint);
         }
     }
+
+    /// <summary>
+    /// Если для бара i подошло время смены — фиксирует текущий (уже
+    /// проинтерполированный) оттенок как новую точку старта и выбирает
+    /// новую случайную цель. Возвращает оттенок, который нужно рисовать
+    /// прямо сейчас (может быть ещё в процессе плавного перехода).
+    /// </summary>
+    private float AdvanceAndGetHue(int index, DateTime now)
+    {
+        ref var state = ref _colors[index];
+
+        if (now >= state.NextChangeAt)
+        {
+            state.FromHue = InterpolateHue(state, now);
+            state.ToHue = RandomHue();
+            state.TransitionStart = now;
+            state.NextChangeAt = now + ChangeInterval;
+        }
+
+        return InterpolateHue(state, now);
+    }
+
+    private static float InterpolateHue(in ColorState state, DateTime now)
+    {
+        double elapsed = (now - state.TransitionStart).TotalMilliseconds;
+        float t = (float)Math.Clamp(elapsed / TransitionDuration.TotalMilliseconds, 0.0, 1.0);
+        return LerpHue(state.FromHue, state.ToHue, t);
+    }
+
+    private static float LerpHue(float from, float to, float t)
+    {
+        // Кратчайший путь по кругу — иначе переход иногда шёл бы в обход
+        // через всю палитру вместо прямого пути.
+        float diff = to - from;
+        diff = ((diff + 540f) % 360f) - 180f;
+        float result = from + diff * t;
+        return ((result % 360f) + 360f) % 360f;
+    }
+
+    private float RandomHue() => (float)(_random.NextDouble() * 360.0);
 
     private void UpdatePeak(int index, float value)
     {
