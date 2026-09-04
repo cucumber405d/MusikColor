@@ -11,6 +11,7 @@ internal sealed class BandMapper
 {
     private readonly int[] _binStart;
     private readonly int[] _binEnd;
+    private readonly float[] _gain;
 
     public int BandCount { get; }
 
@@ -19,6 +20,7 @@ internal sealed class BandMapper
         BandCount = bandCount;
         _binStart = new int[bandCount];
         _binEnd = new int[bandCount];
+        _gain = new float[bandCount];
 
         int usableBins = fftSize / 2;
         float nyquist = sampleRate / 2f;
@@ -40,6 +42,13 @@ internal sealed class BandMapper
 
             _binStart[b] = loBin;
             _binEnd[b] = hiBin;
+
+            // Компенсация естественного спада энергии музыки к верхним
+            // частотам: без неё правая часть экрана почти всегда "мёртвая"
+            // даже с адаптивной нормализацией на канал — амплитуда там
+            // систематически ниже, а не просто "тише сейчас". Подобрано
+            // экспериментально, не претендует на акустическую точность.
+            _gain[b] = 1f + 3.5f * b / Math.Max(1, bandCount - 1);
         }
     }
 
@@ -49,16 +58,21 @@ internal sealed class BandMapper
         {
             int lo = _binStart[b];
             int hi = _binEnd[b];
-            float sum = 0f;
-            int count = 0;
 
+            // Пик, а не среднее: при логарифмическом разбиении верхние
+            // полосы охватывают сотни бинов, и резкий узкополосный всплеск
+            // (тарелки, "s"-звуки) тонет в среднем по огромному числу
+            // соседних тихих бинов, если брать среднее.
+            float peak = 0f;
             for (int i = lo; i < hi && i < magnitudes.Length; i++)
             {
-                sum += magnitudes[i];
-                count++;
+                if (magnitudes[i] > peak)
+                {
+                    peak = magnitudes[i];
+                }
             }
 
-            bandsOut[b] = count > 0 ? sum / count : 0f;
+            bandsOut[b] = peak * _gain[b];
         }
     }
 }
