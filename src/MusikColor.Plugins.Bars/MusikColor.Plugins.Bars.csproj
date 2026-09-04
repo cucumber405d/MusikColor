@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MusikColor.Plugins.Bars</RootNamespace>
+
+    <!-- Плагин собирается сразу в Plugins-папку хоста, чтобы PluginLoader
+         подхватил его без ручного копирования файлов. -->
+    <OutputPath>..\MusikColor.App\bin\$(Configuration)\net8.0-windows\Plugins\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MusikColor.Contracts\MusikColor.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

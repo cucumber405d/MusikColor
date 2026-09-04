@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MusikColor.Plugins.ColorField</RootNamespace>
+
+    <OutputPath>..\MusikColor.App\bin\$(Configuration)\net8.0-windows\Plugins\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MusikColor.Contracts\MusikColor.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>
