@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -59,14 +60,28 @@ public partial class MainWindow : Window
         }
 
         var tag = (SourceCombo.SelectedItem as ComboBoxItem)?.Tag as string;
-        DeviceCombo.ItemsSource = tag == "microphone"
-            ? AudioDeviceCatalog.CaptureDevices()
-            : AudioDeviceCatalog.RenderDevices();
+        bool isMicrophone = tag == "microphone";
 
-        if (DeviceCombo.Items.Count > 0)
+        var devices = isMicrophone ? AudioDeviceCatalog.CaptureDevices() : AudioDeviceCatalog.RenderDevices();
+        DeviceCombo.ItemsSource = devices;
+
+        if (devices.Count == 0)
         {
-            DeviceCombo.SelectedIndex = 0;
+            return;
         }
+
+        // Предвыбираем устройство "по умолчанию" — то, через которое Windows
+        // реально сейчас играет звук (или слушает микрофон), а не первое
+        // в списке: иначе легко попасть на неиспользуемый цифровой выход.
+        string? defaultId = isMicrophone
+            ? AudioDeviceCatalog.DefaultCaptureDeviceId()
+            : AudioDeviceCatalog.DefaultRenderDeviceId();
+
+        int index = defaultId != null
+            ? devices.ToList().FindIndex(d => d.Id == defaultId)
+            : -1;
+
+        DeviceCombo.SelectedIndex = index >= 0 ? index : 0;
     }
 
     private void PluginCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -99,6 +114,8 @@ public partial class MainWindow : Window
             ? new MicrophoneAudioSource(device)
             : new LoopbackAudioSource(device);
 
+        source.ErrorOccurred += OnAudioSourceError;
+
         _audioSource = source;
         _engine = new SpectrumEngine(source, _visualizationHost, BandCount);
         _engine.Start();
@@ -109,8 +126,22 @@ public partial class MainWindow : Window
         DeviceCombo.IsEnabled = false;
     }
 
+    private void OnAudioSourceError(object? sender, Exception ex)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            MessageBox.Show(this, ex.ToString(), "Ошибка захвата звука", MessageBoxButton.OK, MessageBoxImage.Error);
+            StopCapture();
+        });
+    }
+
     private void StopCapture()
     {
+        if (_audioSource != null)
+        {
+            _audioSource.ErrorOccurred -= OnAudioSourceError;
+        }
+
         _engine?.Dispose();
         _engine = null;
         _audioSource = null;

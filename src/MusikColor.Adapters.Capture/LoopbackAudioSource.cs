@@ -18,6 +18,7 @@ public sealed class LoopbackAudioSource : IAudioSource
     public AudioFormatInfo Format { get; }
 
     public event EventHandler<AudioFrame>? FrameAvailable;
+    public event EventHandler<Exception>? ErrorOccurred;
 
     public LoopbackAudioSource(MMDevice? device = null)
     {
@@ -36,11 +37,17 @@ public sealed class LoopbackAudioSource : IAudioSource
 
         _capture = new WasapiLoopbackCapture(_device);
         _capture.DataAvailable += OnDataAvailable;
+        _capture.RecordingStopped += OnRecordingStopped;
         _capture.StartRecording();
     }
 
     public void Stop()
     {
+        if (_capture != null)
+        {
+            _capture.DataAvailable -= OnDataAvailable;
+            _capture.RecordingStopped -= OnRecordingStopped;
+        }
         _capture?.StopRecording();
         _capture?.Dispose();
         _capture = null;
@@ -55,6 +62,17 @@ public sealed class LoopbackAudioSource : IAudioSource
 
         var samples = PcmConverter.ToFloatSamples(e.Buffer, e.BytesRecorded, _capture.WaveFormat);
         FrameAvailable?.Invoke(this, new AudioFrame(samples, Format));
+    }
+
+    private void OnRecordingStopped(object? sender, StoppedEventArgs e)
+    {
+        // NAudio не бросает исключение наружу при обрыве записи — оно приходит
+        // именно сюда. Без этой подписки ошибка (например, WASAPI не смог
+        // инициализировать поток) проходит незаметно.
+        if (e.Exception != null)
+        {
+            ErrorOccurred?.Invoke(this, e.Exception);
+        }
     }
 
     public void Dispose()

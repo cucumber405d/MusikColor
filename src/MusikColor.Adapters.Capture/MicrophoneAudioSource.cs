@@ -15,6 +15,7 @@ public sealed class MicrophoneAudioSource : IAudioSource
     public AudioFormatInfo Format { get; }
 
     public event EventHandler<AudioFrame>? FrameAvailable;
+    public event EventHandler<Exception>? ErrorOccurred;
 
     public MicrophoneAudioSource(MMDevice? device = null)
     {
@@ -33,11 +34,17 @@ public sealed class MicrophoneAudioSource : IAudioSource
 
         _capture = new WasapiCapture(_device);
         _capture.DataAvailable += OnDataAvailable;
+        _capture.RecordingStopped += OnRecordingStopped;
         _capture.StartRecording();
     }
 
     public void Stop()
     {
+        if (_capture != null)
+        {
+            _capture.DataAvailable -= OnDataAvailable;
+            _capture.RecordingStopped -= OnRecordingStopped;
+        }
         _capture?.StopRecording();
         _capture?.Dispose();
         _capture = null;
@@ -52,6 +59,14 @@ public sealed class MicrophoneAudioSource : IAudioSource
 
         var samples = PcmConverter.ToFloatSamples(e.Buffer, e.BytesRecorded, _capture.WaveFormat);
         FrameAvailable?.Invoke(this, new AudioFrame(samples, Format));
+    }
+
+    private void OnRecordingStopped(object? sender, StoppedEventArgs e)
+    {
+        if (e.Exception != null)
+        {
+            ErrorOccurred?.Invoke(this, e.Exception);
+        }
     }
 
     public void Dispose()

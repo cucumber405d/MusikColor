@@ -13,6 +13,13 @@ public interface IAudioSource : IDisposable
 
     event EventHandler<AudioFrame>? FrameAvailable;
 
+    /// <summary>
+    /// Срабатывает, если запись оборвалась из-за ошибки (например, WASAPI
+    /// не смог инициализировать поток). Без этого события такие сбои
+    /// проходят незаметно — поток просто тихо останавливается.
+    /// </summary>
+    event EventHandler<Exception>? ErrorOccurred;
+
     void Start();
     void Stop();
 }
