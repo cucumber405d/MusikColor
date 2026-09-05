@@ -20,6 +20,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.Shared",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.Notation", "src\MusikColor.Plugins.Notation\MusikColor.Plugins.Notation.csproj", "{A1000000-0000-0000-0000-000000000009}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.RadialSpectrum", "src\MusikColor.Plugins.RadialSpectrum\MusikColor.Plugins.RadialSpectrum.csproj", "{A1000000-0000-0000-0000-00000000000A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -62,6 +64,10 @@ Global
 		{A1000000-0000-0000-0000-000000000009}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1000000-0000-0000-0000-000000000009}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1000000-0000-0000-0000-000000000009}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1000000-0000-0000-0000-00000000000A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1000000-0000-0000-0000-00000000000A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1000000-0000-0000-0000-00000000000A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1000000-0000-0000-0000-00000000000A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
