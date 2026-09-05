@@ -24,6 +24,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.RadialSp
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.MirrorSpectrum", "src\MusikColor.Plugins.MirrorSpectrum\MusikColor.Plugins.MirrorSpectrum.csproj", "{A1000000-0000-0000-0000-00000000000B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.Skyline3D", "src\MusikColor.Plugins.Skyline3D\MusikColor.Plugins.Skyline3D.csproj", "{A1000000-0000-0000-0000-00000000000C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -74,6 +76,10 @@ Global
 		{A1000000-0000-0000-0000-00000000000B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1000000-0000-0000-0000-00000000000B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1000000-0000-0000-0000-00000000000B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1000000-0000-0000-0000-00000000000C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1000000-0000-0000-0000-00000000000C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1000000-0000-0000-0000-00000000000C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1000000-0000-0000-0000-00000000000C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
