@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using MusikColor.Adapters.Capture;
 using MusikColor.Adapters.Visualization;
 using MusikColor.Contracts;
@@ -17,9 +19,13 @@ namespace MusikColor.App;
 public partial class MainWindow : Window
 {
     private const int BandCount = 48;
+    private const double DefaultAutoCycleIntervalSeconds = 10.0;
+    private const double MinAutoCycleIntervalSeconds = 1.0;
 
     private readonly VisualizationHost _visualizationHost = new();
     private readonly List<IVisualizerPlugin> _plugins;
+    private readonly DispatcherTimer _autoCycleTimer = new();
+    private readonly Random _random = new();
 
     private IAudioSource? _audioSource;
     private SpectrumEngine? _engine;
@@ -48,6 +54,8 @@ public partial class MainWindow : Window
 
         SourceCombo.SelectedIndex = 0;
         RefreshDeviceList();
+
+        _autoCycleTimer.Tick += AutoCycleTimer_Tick;
 
         CompositionTarget.Rendering += (_, _) => Canvas.InvalidateVisual();
     }
@@ -92,6 +100,60 @@ public partial class MainWindow : Window
         {
             _visualizationHost.ActivePlugin = plugin;
         }
+    }
+
+    // Случайная автосмена визуализаций: пока включён чекбокс "Автосмена",
+    // каждые N секунд (поле "сек", по умолчанию 10) выбирается случайная
+    // визуализация, отличная от текущей.
+    private void AutoCycleCheck_CheckedChanged(object sender, RoutedEventArgs e)
+    {
+        if (AutoCycleCheck.IsChecked == true)
+        {
+            _autoCycleTimer.Interval = TimeSpan.FromSeconds(GetConfiguredAutoCycleIntervalSeconds());
+            _autoCycleTimer.Start();
+        }
+        else
+        {
+            _autoCycleTimer.Stop();
+        }
+    }
+
+    private void AutoCycleIntervalBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_autoCycleTimer.IsEnabled)
+        {
+            _autoCycleTimer.Interval = TimeSpan.FromSeconds(GetConfiguredAutoCycleIntervalSeconds());
+        }
+    }
+
+    private double GetConfiguredAutoCycleIntervalSeconds()
+    {
+        var text = AutoCycleIntervalBox?.Text?.Trim().Replace(',', '.');
+
+        if (!string.IsNullOrEmpty(text) &&
+            double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) &&
+            seconds >= MinAutoCycleIntervalSeconds)
+        {
+            return seconds;
+        }
+
+        return DefaultAutoCycleIntervalSeconds;
+    }
+
+    private void AutoCycleTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_plugins.Count < 2)
+        {
+            return;
+        }
+
+        IVisualizerPlugin next;
+        do
+        {
+            next = _plugins[_random.Next(_plugins.Count)];
+        } while (ReferenceEquals(next, _visualizationHost.ActivePlugin));
+
+        PluginCombo.SelectedItem = next;
     }
 
     private void StartStopButton_Click(object sender, RoutedEventArgs e)
@@ -172,6 +234,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _autoCycleTimer.Stop();
         StopCapture();
         base.OnClosed(e);
     }
