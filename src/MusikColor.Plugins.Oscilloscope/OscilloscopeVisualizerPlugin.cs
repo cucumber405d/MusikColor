@@ -5,12 +5,15 @@ using MusikColor.Contracts;
 namespace MusikColor.Plugins.Oscilloscope;
 
 /// <summary>
-/// "Осциллограф" — классическая ламповая ЭЛТ-развёртка: реальная форма
-/// звуковой волны (не частотный спектр) бежит одной светящейся линией
-/// поперёк экрана, поверх тусклой сетки-графика, со сканлайнами для
-/// аутентичности. Янтарный фосфор — единственный плагин с таким цветом
-/// в проекте, чтобы не путать с зелёным каналом "Цветомузыки" или любой
-/// другой палитрой.
+/// "Осциллограф" — классическая ЭЛТ-развёртка: реальная форма звуковой
+/// волны (не частотный спектр) бежит поперёк экрана, залитая от средней
+/// оси (как в аудиоредакторах), поверх тусклой сетки-графика, со
+/// сканлайнами для аутентичности.
+///
+/// Цвет луча не статичный — раз в 5 секунд сам плавно перетекает к
+/// новому случайному оттенку по всей палитре (тот же приём, что и в
+/// "Частотных барах"), так что при долгом просмотре картинка не
+/// приедается одним и тем же янтарным светом.
 ///
 /// Вертикальный масштаб калибруется по входящему сигналу самостоятельно
 /// (тот же приём, что и в "Спектрограмме-водопад"): недавний пиковый
@@ -23,16 +26,38 @@ public sealed class OscilloscopeVisualizerPlugin : IVisualizerPlugin
     public string Id => "oscilloscope";
     public string DisplayName => "Осциллограф";
 
-    private static readonly SKColor PhosphorColor = new(255, 170, 40);
-
     private const float PeakDecayPerFrame = 0.985f;
     private const float MinRange = 0.02f;
 
+    private static readonly TimeSpan ChangeInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(700);
+
+    private readonly Random _random = new();
+
     private float _runningPeak = MinRange;
+    private ColorState _color;
+
+    private struct ColorState
+    {
+        public float FromHue;
+        public float ToHue;
+        public DateTime TransitionStart;
+        public DateTime NextChangeAt;
+    }
 
     public void Init(VisualizerContext context)
     {
         _runningPeak = MinRange;
+
+        var now = DateTime.UtcNow;
+        float initialHue = RandomHue();
+        _color = new ColorState
+        {
+            FromHue = initialHue,
+            ToHue = initialHue,
+            TransitionStart = now,
+            NextChangeAt = now + ChangeInterval,
+        };
     }
 
     public void Render(SKCanvas canvas, SKImageInfo info, FrequencyFrame frame)
@@ -45,12 +70,16 @@ public sealed class OscilloscopeVisualizerPlugin : IVisualizerPlugin
         }
 
         var wave = frame.Waveform;
-        if (wave.Length == 0)
+        if (wave.Length < 2)
         {
             return;
         }
 
-        DrawGraticule(canvas, info);
+        var now = DateTime.UtcNow;
+        float hue = AdvanceAndGetHue(now);
+        var phosphorColor = SKColor.FromHsv(hue, 85, 95);
+
+        DrawGraticule(canvas, info, phosphorColor);
 
         float frameMax = 0f;
         for (int i = 0; i < wave.Length; i++)
@@ -67,20 +96,46 @@ public sealed class OscilloscopeVisualizerPlugin : IVisualizerPlugin
         float halfHeight = info.Height * 0.42f;
         float gain = halfHeight / _runningPeak;
 
-        using var tracePath = new SKPath();
         float stepX = (float)info.Width / (wave.Length - 1);
+
+        var points = new SKPoint[wave.Length];
         for (int i = 0; i < wave.Length; i++)
         {
             float x = i * stepX;
             float y = centerY - Math.Clamp(wave[i] * gain, -halfHeight, halfHeight);
-            if (i == 0)
+            points[i] = new SKPoint(x, y);
+        }
+
+        using var tracePath = new SKPath();
+        tracePath.MoveTo(points[0]);
+        for (int i = 1; i < points.Length; i++)
+        {
+            tracePath.LineTo(points[i]);
+        }
+
+        // Заливка от средней оси: контур идёт по оси до первой точки
+        // волны, дальше по самой волне, затем снова на ось у правого
+        // края и замыкается прямой линией по оси — так получаются
+        // залитые "лепестки" и выше, и ниже оси, как в аудиоредакторах,
+        // а не просто тонкая линия.
+        using (var fillPath = new SKPath())
+        {
+            fillPath.MoveTo(0, centerY);
+            fillPath.LineTo(points[0]);
+            for (int i = 1; i < points.Length; i++)
             {
-                tracePath.MoveTo(x, y);
+                fillPath.LineTo(points[i]);
             }
-            else
+            fillPath.LineTo(info.Width, centerY);
+            fillPath.Close();
+
+            using var fillPaint = new SKPaint
             {
-                tracePath.LineTo(x, y);
-            }
+                IsAntialias = true,
+                Style = SKPaintStyle.Fill,
+                Color = phosphorColor.WithAlpha(60),
+            };
+            canvas.DrawPath(fillPath, fillPaint);
         }
 
         using (var glowPaint = new SKPaint
@@ -90,7 +145,7 @@ public sealed class OscilloscopeVisualizerPlugin : IVisualizerPlugin
             StrokeWidth = 7f,
             StrokeCap = SKStrokeCap.Round,
             StrokeJoin = SKStrokeJoin.Round,
-            Color = PhosphorColor.WithAlpha(90),
+            Color = phosphorColor.WithAlpha(90),
             BlendMode = SKBlendMode.Plus,
             ImageFilter = SKImageFilter.CreateBlur(6f, 6f),
         })
@@ -105,7 +160,7 @@ public sealed class OscilloscopeVisualizerPlugin : IVisualizerPlugin
             StrokeWidth = 2.2f,
             StrokeCap = SKStrokeCap.Round,
             StrokeJoin = SKStrokeJoin.Round,
-            Color = PhosphorColor,
+            Color = phosphorColor,
         })
         {
             canvas.DrawPath(tracePath, tracePaint);
@@ -114,19 +169,49 @@ public sealed class OscilloscopeVisualizerPlugin : IVisualizerPlugin
         DrawScanlines(canvas, info);
     }
 
-    private static void DrawGraticule(SKCanvas canvas, SKImageInfo info)
+    private float AdvanceAndGetHue(DateTime now)
+    {
+        if (now >= _color.NextChangeAt)
+        {
+            _color.FromHue = InterpolateHue(_color, now);
+            _color.ToHue = RandomHue();
+            _color.TransitionStart = now;
+            _color.NextChangeAt = now + ChangeInterval;
+        }
+
+        return InterpolateHue(_color, now);
+    }
+
+    private static float InterpolateHue(in ColorState state, DateTime now)
+    {
+        double elapsed = (now - state.TransitionStart).TotalMilliseconds;
+        float t = (float)Math.Clamp(elapsed / TransitionDuration.TotalMilliseconds, 0.0, 1.0);
+        return LerpHue(state.FromHue, state.ToHue, t);
+    }
+
+    private static float LerpHue(float from, float to, float t)
+    {
+        float diff = to - from;
+        diff = ((diff + 540f) % 360f) - 180f;
+        float result = from + diff * t;
+        return ((result % 360f) + 360f) % 360f;
+    }
+
+    private float RandomHue() => (float)(_random.NextDouble() * 360.0);
+
+    private static void DrawGraticule(SKCanvas canvas, SKImageInfo info, SKColor color)
     {
         using var gridPaint = new SKPaint
         {
             IsAntialias = false,
-            Color = PhosphorColor.WithAlpha(22),
+            Color = color.WithAlpha(22),
             StrokeWidth = 1f,
             Style = SKPaintStyle.Stroke,
         };
         using var axisPaint = new SKPaint
         {
             IsAntialias = false,
-            Color = PhosphorColor.WithAlpha(45),
+            Color = color.WithAlpha(45),
             StrokeWidth = 1f,
             Style = SKPaintStyle.Stroke,
         };
