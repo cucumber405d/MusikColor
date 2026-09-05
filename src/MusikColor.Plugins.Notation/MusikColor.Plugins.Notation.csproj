@@ -4,7 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RootNamespace>MusikColor.Plugins.ColorField</RootNamespace>
+    <RootNamespace>MusikColor.Plugins.Notation</RootNamespace>
 
     <OutputPath>..\MusikColor.App\bin\$(Configuration)\net8.0-windows\Plugins\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>

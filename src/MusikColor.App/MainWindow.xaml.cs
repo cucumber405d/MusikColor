@@ -32,9 +32,11 @@ public partial class MainWindow : Window
         var pluginsPath = Path.Combine(AppContext.BaseDirectory, "Plugins");
         _plugins = new List<IVisualizerPlugin>(new PluginLoader(pluginsPath).LoadAll());
 
+        var bandFrequencies = VisualizerContext.ComputeLogSpacedCenterFrequencies(BandCount);
+        var visualizerContext = new VisualizerContext(BandCount, bandFrequencies);
         foreach (var plugin in _plugins)
         {
-            plugin.Init(new VisualizerContext(BandCount));
+            plugin.Init(visualizerContext);
         }
 
         PluginCombo.ItemsSource = _plugins;
