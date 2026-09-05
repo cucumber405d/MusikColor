@@ -10,12 +10,14 @@ namespace MusikColor.Plugins.Skyline3D;
 /// и боковой гранью, как в старых 3D-бар-чартах), с окнами-точками и
 /// мягким свечением по громкости.
 ///
-/// Цвет — закатная гамма (фиолетовый -> пурпурный -> коралловый ->
-/// оранжевый -> золотой), но не гладкий градиент слева направо, а
-/// перемежающийся: соседние здания берут соседние по палитре оттенки
-/// вперемешку (детерминированный псевдослучайный сдвиг по индексу),
-/// как в настоящем городе — где тёплые и холодные окна соседствуют,
-/// а не выстроены плавной радугой. Зелёный намеренно не используется.
+/// Цвет — 6-ступенчатая палитра по дуге оттенков (не гладкий градиент
+/// слева направо, а перемежающийся: соседние здания берут соседние по
+/// палитре оттенки вперемешку, детерминированный псевдослучайный сдвиг
+/// по индексу — как в настоящем городе, где тёплые и холодные окна
+/// соседствуют). Сама дуга не застыла навечно — раз в несколько секунд
+/// весь город плавно перекрашивается в новую гамму (например, с
+/// закатной на ледяную), чтобы при долгом просмотре не приедался один
+/// и тот же фиолетово-золотой закат.
 /// </summary>
 public sealed class Skyline3DVisualizerPlugin : IVisualizerPlugin
 {
@@ -25,21 +27,43 @@ public sealed class Skyline3DVisualizerPlugin : IVisualizerPlugin
     private const float AttackSmoothing = 0.5f;
     private const float ReleaseSmoothing = 0.06f;
 
-    private static readonly SKColor[] DuskPalette =
-    {
-        new(90, 60, 200),   // фиолетовый
-        new(150, 50, 195),  // сиренево-пурпурный
-        new(215, 45, 150),  // малиновый
-        new(255, 90, 100),  // коралловый
-        new(255, 140, 60),  // оранжевый
-        new(255, 195, 60),  // золотой
-    };
+    // Относительные смещения оттенка внутри палитры (градусы) — сама
+    // дуга едет по кругу вместе с базовым оттенком, но взаимный рисунок
+    // "холоднее -> теплее" всегда сохраняется.
+    private static readonly float[] PaletteHueOffsets = { 0f, 35f, 80f, 130f, 170f, 205f };
+    private static readonly float[] PaletteSaturation = { 65f, 70f, 75f, 80f, 80f, 75f };
+    private static readonly float[] PaletteValue = { 75f, 72f, 80f, 92f, 100f, 100f };
+
+    private static readonly TimeSpan ChangeInterval = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(2000);
+
+    private readonly Random _random = new();
+    private readonly SKColor[] _palette = new SKColor[PaletteHueOffsets.Length];
 
     private float[] _smoothed = Array.Empty<float>();
+    private HueState _hue;
+
+    private struct HueState
+    {
+        public float FromHue;
+        public float ToHue;
+        public DateTime TransitionStart;
+        public DateTime NextChangeAt;
+    }
 
     public void Init(VisualizerContext context)
     {
         _smoothed = new float[Math.Max(1, context.BandCount)];
+
+        var now = DateTime.UtcNow;
+        float initialHue = RandomHue();
+        _hue = new HueState
+        {
+            FromHue = initialHue,
+            ToHue = initialHue,
+            TransitionStart = now,
+            NextChangeAt = now + ChangeInterval,
+        };
     }
 
     public void Render(SKCanvas canvas, SKImageInfo info, FrequencyFrame frame)
@@ -50,6 +74,14 @@ public sealed class Skyline3DVisualizerPlugin : IVisualizerPlugin
         }
 
         DrawSky(canvas, info);
+
+        var now = DateTime.UtcNow;
+        float baseHue = AdvanceAndGetHue(now);
+        for (int p = 0; p < _palette.Length; p++)
+        {
+            float hue = (baseHue + PaletteHueOffsets[p]) % 360f;
+            _palette[p] = SKColor.FromHsv(hue, PaletteSaturation[p], PaletteValue[p]);
+        }
 
         var bands = frame.Bands;
         int n = bands.Length;
@@ -102,7 +134,7 @@ public sealed class Skyline3DVisualizerPlugin : IVisualizerPlugin
             float yTop = baseline - height;
             float yBottom = baseline;
 
-            var baseColor = PaletteColorFor(i, n);
+            var baseColor = PaletteColorFor(i, n, _palette);
 
             var frontColor = Shade(baseColor, 0.55f);
             var sideColor = Shade(baseColor, 0.78f);
@@ -197,15 +229,15 @@ public sealed class Skyline3DVisualizerPlugin : IVisualizerPlugin
     /// соседние здания между собой, чтобы цвет не сливался в гладкую
     /// радугу, а перемежался, как настоящая городская застройка.
     /// </summary>
-    private static SKColor PaletteColorFor(int index, int count)
+    private static SKColor PaletteColorFor(int index, int count, SKColor[] palette)
     {
         float t = count > 1 ? (float)index / (count - 1) : 0f;
-        float posIndex = t * (DuskPalette.Length - 1);
+        float posIndex = t * (palette.Length - 1);
         int baseIdx = (int)MathF.Round(posIndex);
 
         int jitter = (Hash(index) % 3) - 1; // -1, 0 или +1
-        int idx = Math.Clamp(baseIdx + jitter, 0, DuskPalette.Length - 1);
-        return DuskPalette[idx];
+        int idx = Math.Clamp(baseIdx + jitter, 0, palette.Length - 1);
+        return palette[idx];
     }
 
     private static int Hash(int i)
@@ -216,6 +248,36 @@ public sealed class Skyline3DVisualizerPlugin : IVisualizerPlugin
             return (int)(h & 0x7fffffff);
         }
     }
+
+    private float AdvanceAndGetHue(DateTime now)
+    {
+        if (now >= _hue.NextChangeAt)
+        {
+            _hue.FromHue = InterpolateHue(_hue, now);
+            _hue.ToHue = RandomHue();
+            _hue.TransitionStart = now;
+            _hue.NextChangeAt = now + ChangeInterval;
+        }
+
+        return InterpolateHue(_hue, now);
+    }
+
+    private static float InterpolateHue(in HueState state, DateTime now)
+    {
+        double elapsed = (now - state.TransitionStart).TotalMilliseconds;
+        float t = (float)Math.Clamp(elapsed / TransitionDuration.TotalMilliseconds, 0.0, 1.0);
+        return LerpHue(state.FromHue, state.ToHue, t);
+    }
+
+    private static float LerpHue(float from, float to, float t)
+    {
+        float diff = to - from;
+        diff = ((diff + 540f) % 360f) - 180f;
+        float result = from + diff * t;
+        return ((result % 360f) + 360f) % 360f;
+    }
+
+    private float RandomHue() => (float)(_random.NextDouble() * 360.0);
 
     private static SKColor Shade(SKColor color, float factor)
     {

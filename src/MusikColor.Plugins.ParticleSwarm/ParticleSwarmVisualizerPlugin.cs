@@ -12,11 +12,11 @@ namespace MusikColor.Plugins.ParticleSwarm;
 /// (гравитация тянет вниз, лёгкий воздушный снос по горизонтали) и
 /// гаснут естественно, а не пропадают резко.
 ///
-/// Цвет — не по полосе и не по времени, а по возрасту самой частицы:
-/// огненный градиент от бело-жёлтого (свежая искра) через оранжевый к
-/// тёмно-красному тлеющему угольку (перед тем как погаснуть). Такой
-/// цветовой механики — "цвет как функция возраста объекта" — в проекте
-/// ещё не было.
+/// Цвет — двухслойный: возраст частицы задаёт яркость и насыщенность
+/// (свежая искра — почти белая вспышка, старая — тускнеющий насыщенный
+/// уголёк), а сам оттенок общий для всего роя и раз в несколько секунд
+/// плавно перетекает к новому случайному — чтобы рой не был навечно
+/// приклеен к одному цветовому семейству (было: только огонь).
 /// </summary>
 public sealed class ParticleSwarmVisualizerPlugin : IVisualizerPlugin
 {
@@ -31,14 +31,8 @@ public sealed class ParticleSwarmVisualizerPlugin : IVisualizerPlugin
     private const float Gravity = 260f;      // px/сек^2, тянет вниз
     private const float DragPerSecond = 0.6f; // затухание горизонтального сноса
 
-    private static readonly (float Pos, SKColor Color)[] FireStops =
-    {
-        (0.00f, new SKColor(255, 255, 225)),
-        (0.25f, new SKColor(255, 210, 80)),
-        (0.55f, new SKColor(255, 120, 30)),
-        (0.85f, new SKColor(200, 40, 15)),
-        (1.00f, new SKColor(60, 10, 5)),
-    };
+    private static readonly TimeSpan ChangeInterval = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(1500);
 
     private readonly Random _random = new();
     private readonly List<Particle> _particles = new();
@@ -46,6 +40,7 @@ public sealed class ParticleSwarmVisualizerPlugin : IVisualizerPlugin
     private float[] _smoothed = Array.Empty<float>();
     private float[] _spawnAccumulator = Array.Empty<float>();
     private DateTime _lastFrameTime = DateTime.UtcNow;
+    private HueState _hue;
 
     private sealed class Particle
     {
@@ -58,6 +53,14 @@ public sealed class ParticleSwarmVisualizerPlugin : IVisualizerPlugin
         public float BaseSize;
     }
 
+    private struct HueState
+    {
+        public float FromHue;
+        public float ToHue;
+        public DateTime TransitionStart;
+        public DateTime NextChangeAt;
+    }
+
     public void Init(VisualizerContext context)
     {
         int n = Math.Max(1, context.BandCount);
@@ -65,10 +68,23 @@ public sealed class ParticleSwarmVisualizerPlugin : IVisualizerPlugin
         _spawnAccumulator = new float[n];
         _particles.Clear();
         _lastFrameTime = DateTime.UtcNow;
+
+        var now = DateTime.UtcNow;
+        float initialHue = RandomHue();
+        _hue = new HueState
+        {
+            FromHue = initialHue,
+            ToHue = initialHue,
+            TransitionStart = now,
+            NextChangeAt = now + ChangeInterval,
+        };
     }
 
     public void Render(SKCanvas canvas, SKImageInfo info, FrequencyFrame frame)
     {
+        var now = DateTime.UtcNow;
+        float currentHue = AdvanceAndGetHue(now);
+
         DrawBackground(canvas, info);
 
         if (info.Width <= 0 || info.Height <= 0)
@@ -89,7 +105,6 @@ public sealed class ParticleSwarmVisualizerPlugin : IVisualizerPlugin
             _spawnAccumulator = new float[n];
         }
 
-        var now = DateTime.UtcNow;
         float dt = Math.Clamp((float)(now - _lastFrameTime).TotalSeconds, 0f, 0.1f);
         _lastFrameTime = now;
 
@@ -120,7 +135,7 @@ public sealed class ParticleSwarmVisualizerPlugin : IVisualizerPlugin
         }
 
         UpdateParticles(dt);
-        DrawParticles(canvas);
+        DrawParticles(canvas, currentHue);
     }
 
     private void SpawnParticle(int bandIndex, float slot, float baseline, float level)
@@ -160,7 +175,7 @@ public sealed class ParticleSwarmVisualizerPlugin : IVisualizerPlugin
         }
     }
 
-    private void DrawParticles(SKCanvas canvas)
+    private void DrawParticles(SKCanvas canvas, float hue)
     {
         using var glowPaint = new SKPaint
         {
@@ -173,7 +188,13 @@ public sealed class ParticleSwarmVisualizerPlugin : IVisualizerPlugin
         foreach (var p in _particles)
         {
             float ageFraction = Math.Clamp(p.Age / p.MaxAge, 0f, 1f);
-            var color = FireColorFor(ageFraction);
+
+            // Свежая искра — почти белая вспышка (низкая насыщенность,
+            // максимальная яркость), старая — тускнеющий насыщенный уголёк.
+            float saturation = 15f + ageFraction * 75f;
+            float brightness = 100f - ageFraction * 68f;
+            var color = SKColor.FromHsv(hue, saturation, brightness);
+
             byte alpha = (byte)Math.Clamp(255f * (1f - ageFraction * 1.05f), 0f, 255f);
             float size = p.BaseSize * (1f - ageFraction * 0.4f);
 
@@ -185,36 +206,42 @@ public sealed class ParticleSwarmVisualizerPlugin : IVisualizerPlugin
         }
     }
 
-    private static SKColor FireColorFor(float t)
+    private float AdvanceAndGetHue(DateTime now)
     {
-        t = Math.Clamp(t, 0f, 1f);
-        for (int i = 0; i < FireStops.Length - 1; i++)
+        if (now >= _hue.NextChangeAt)
         {
-            if (t <= FireStops[i + 1].Pos)
-            {
-                float span = FireStops[i + 1].Pos - FireStops[i].Pos;
-                float localT = span > 0f ? (t - FireStops[i].Pos) / span : 0f;
-                return LerpColor(FireStops[i].Color, FireStops[i + 1].Color, localT);
-            }
+            _hue.FromHue = InterpolateHue(_hue, now);
+            _hue.ToHue = RandomHue();
+            _hue.TransitionStart = now;
+            _hue.NextChangeAt = now + ChangeInterval;
         }
-        return FireStops[^1].Color;
+
+        return InterpolateHue(_hue, now);
     }
 
-    private static SKColor LerpColor(SKColor a, SKColor b, float t)
+    private static float InterpolateHue(in HueState state, DateTime now)
     {
-        t = Math.Clamp(t, 0f, 1f);
-        byte r = (byte)(a.Red + (b.Red - a.Red) * t);
-        byte g = (byte)(a.Green + (b.Green - a.Green) * t);
-        byte bl = (byte)(a.Blue + (b.Blue - a.Blue) * t);
-        return new SKColor(r, g, bl);
+        double elapsed = (now - state.TransitionStart).TotalMilliseconds;
+        float t = (float)Math.Clamp(elapsed / TransitionDuration.TotalMilliseconds, 0.0, 1.0);
+        return LerpHue(state.FromHue, state.ToHue, t);
     }
+
+    private static float LerpHue(float from, float to, float t)
+    {
+        float diff = to - from;
+        diff = ((diff + 540f) % 360f) - 180f;
+        float result = from + diff * t;
+        return ((result % 360f) + 360f) % 360f;
+    }
+
+    private float RandomHue() => (float)(_random.NextDouble() * 360.0);
 
     private static void DrawBackground(SKCanvas canvas, SKImageInfo info)
     {
         using var shader = SKShader.CreateLinearGradient(
             new SKPoint(0, 0),
             new SKPoint(0, info.Height),
-            new[] { new SKColor(2, 2, 4), new SKColor(18, 8, 6) },
+            new[] { new SKColor(2, 2, 4), new SKColor(10, 8, 8) },
             new[] { 0f, 1f },
             SKShaderTileMode.Clamp);
 

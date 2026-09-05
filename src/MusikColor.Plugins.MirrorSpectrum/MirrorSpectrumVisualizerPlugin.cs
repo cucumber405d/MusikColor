@@ -10,11 +10,12 @@ namespace MusikColor.Plugins.MirrorSpectrum;
 /// а под этой линией — их приглушённое, размытое отражение, как в
 /// стекле или на глянцевом танцполе.
 ///
-/// Своя цветовая идентичность — холодный неоновый дуэт "циан -> пурпур"
-/// по громкости полосы (тихо -> громко), в отличие от радужных
-/// "Частотных баров", схемы бас/середина/верха "Цветомузыки" и
-/// закатного сине-фиолетово-оранжевого "3D-скайлайна": каждая
-/// визуализация должна узнаваться по цвету, а не сливаться в одну.
+/// Своя цветовая идентичность — холодный неоновый дуэт двух оттенков,
+/// разнесённых на фиксированный угол по кругу (тихо -> громко), в
+/// отличие от радужных "Частотных баров" и схемы бас/середина/верха
+/// "Цветомузыки". Сам дуэт не застыл навечно — раз в несколько секунд
+/// весь он плавно перетекает к новой паре оттенков, чтобы при долгом
+/// просмотре не приедался один и тот же циан-пурпур.
 /// </summary>
 public sealed class MirrorSpectrumVisualizerPlugin : IVisualizerPlugin
 {
@@ -23,15 +24,37 @@ public sealed class MirrorSpectrumVisualizerPlugin : IVisualizerPlugin
 
     private const float AttackSmoothing = 0.55f;
     private const float ReleaseSmoothing = 0.09f;
+    private const float HueSpread = 140f; // угловое расстояние между "тихим" и "громким" оттенком
 
-    private static readonly SKColor QuietColor = new(30, 210, 225);   // циан
-    private static readonly SKColor LoudColor = new(230, 30, 190);    // пурпур
+    private static readonly TimeSpan ChangeInterval = TimeSpan.FromSeconds(7);
+    private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(1500);
+
+    private readonly Random _random = new();
 
     private float[] _smoothed = Array.Empty<float>();
+    private HueState _hue;
+
+    private struct HueState
+    {
+        public float FromHue;
+        public float ToHue;
+        public DateTime TransitionStart;
+        public DateTime NextChangeAt;
+    }
 
     public void Init(VisualizerContext context)
     {
         _smoothed = new float[Math.Max(1, context.BandCount)];
+
+        var now = DateTime.UtcNow;
+        float initialHue = RandomHue();
+        _hue = new HueState
+        {
+            FromHue = initialHue,
+            ToHue = initialHue,
+            TransitionStart = now,
+            NextChangeAt = now + ChangeInterval,
+        };
     }
 
     public void Render(SKCanvas canvas, SKImageInfo info, FrequencyFrame frame)
@@ -54,6 +77,11 @@ public sealed class MirrorSpectrumVisualizerPlugin : IVisualizerPlugin
         {
             _smoothed = new float[n];
         }
+
+        var now = DateTime.UtcNow;
+        float baseHue = AdvanceAndGetHue(now);
+        var quietColor = SKColor.FromHsv(baseHue, 80, 90);
+        var loudColor = SKColor.FromHsv((baseHue + HueSpread) % 360f, 90, 100);
 
         for (int i = 0; i < n; i++)
         {
@@ -90,7 +118,7 @@ public sealed class MirrorSpectrumVisualizerPlugin : IVisualizerPlugin
 
                 float height = level * maxBarHeight;
                 float x = i * slot + gap;
-                var color = LerpColor(QuietColor, LoudColor, level);
+                var color = LerpColor(quietColor, loudColor, level);
 
                 reflectionPaint.Color = color.WithAlpha((byte)Math.Clamp(30f + level * 90f, 30f, 120f));
                 canvas.DrawRect(new SKRect(x, baseline, x + barWidth, baseline + height), reflectionPaint);
@@ -111,7 +139,7 @@ public sealed class MirrorSpectrumVisualizerPlugin : IVisualizerPlugin
                 float height = level * maxBarHeight;
                 float x = i * slot + gap;
                 float top = baseline - height;
-                var color = LerpColor(QuietColor, LoudColor, level);
+                var color = LerpColor(quietColor, loudColor, level);
 
                 barPaint.Color = color.WithAlpha((byte)Math.Clamp(180f + level * 75f, 180f, 255f));
                 canvas.DrawRect(new SKRect(x, top, x + barWidth, baseline), barPaint);
@@ -133,6 +161,36 @@ public sealed class MirrorSpectrumVisualizerPlugin : IVisualizerPlugin
         };
         canvas.DrawLine(0, baseline, info.Width, baseline, horizonPaint);
     }
+
+    private float AdvanceAndGetHue(DateTime now)
+    {
+        if (now >= _hue.NextChangeAt)
+        {
+            _hue.FromHue = InterpolateHue(_hue, now);
+            _hue.ToHue = RandomHue();
+            _hue.TransitionStart = now;
+            _hue.NextChangeAt = now + ChangeInterval;
+        }
+
+        return InterpolateHue(_hue, now);
+    }
+
+    private static float InterpolateHue(in HueState state, DateTime now)
+    {
+        double elapsed = (now - state.TransitionStart).TotalMilliseconds;
+        float t = (float)Math.Clamp(elapsed / TransitionDuration.TotalMilliseconds, 0.0, 1.0);
+        return LerpHue(state.FromHue, state.ToHue, t);
+    }
+
+    private static float LerpHue(float from, float to, float t)
+    {
+        float diff = to - from;
+        diff = ((diff + 540f) % 360f) - 180f;
+        float result = from + diff * t;
+        return ((result % 360f) + 360f) % 360f;
+    }
+
+    private float RandomHue() => (float)(_random.NextDouble() * 360.0);
 
     private static SKColor LerpColor(SKColor a, SKColor b, float t)
     {
