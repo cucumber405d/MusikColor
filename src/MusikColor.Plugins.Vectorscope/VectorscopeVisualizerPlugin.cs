@@ -12,9 +12,12 @@ namespace MusikColor.Plugins.Vectorscope;
 /// совпадают, и след честно вытягивается в диагональную линию — это
 /// не ошибка, а видно, что стерео нет.
 ///
-/// Один фиксированный холодный бирюзовый фосфор — не мигает и не
-/// меняется по времени (в отличие от "Осциллографа"), чтобы в наборе
-/// визуализаций были разные механики цвета, а не только "всё мигает".
+/// Область между центром и кривой залита полупрозрачным цветом (как
+/// заливка от оси в "Осциллографе", только здесь "ось" — это
+/// центральная точка). Цвет луча раз в 5 секунд сам плавно перетекает
+/// к новому случайному оттенку по всей палитре — тот же приём, что и в
+/// "Частотных барах" и "Осциллографе".
+///
 /// Масштаб по X и Y общий (не растягивается по осям отдельно) — иначе
 /// форма фигур искажалась бы и не отражала бы реальное соотношение
 /// каналов.
@@ -24,16 +27,38 @@ public sealed class VectorscopeVisualizerPlugin : IVisualizerPlugin
     public string Id => "vectorscope";
     public string DisplayName => "Вектороскоп (Лиссажу)";
 
-    private static readonly SKColor PhosphorColor = new(40, 230, 200);
-
     private const float PeakDecayPerFrame = 0.985f;
     private const float MinRange = 0.02f;
 
+    private static readonly TimeSpan ChangeInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(700);
+
+    private readonly Random _random = new();
+
     private float _runningPeak = MinRange;
+    private ColorState _color;
+
+    private struct ColorState
+    {
+        public float FromHue;
+        public float ToHue;
+        public DateTime TransitionStart;
+        public DateTime NextChangeAt;
+    }
 
     public void Init(VisualizerContext context)
     {
         _runningPeak = MinRange;
+
+        var now = DateTime.UtcNow;
+        float initialHue = RandomHue();
+        _color = new ColorState
+        {
+            FromHue = initialHue,
+            ToHue = initialHue,
+            TransitionStart = now,
+            NextChangeAt = now + ChangeInterval,
+        };
     }
 
     public void Render(SKCanvas canvas, SKImageInfo info, FrequencyFrame frame)
@@ -53,11 +78,15 @@ public sealed class VectorscopeVisualizerPlugin : IVisualizerPlugin
             return;
         }
 
+        var now = DateTime.UtcNow;
+        float hue = AdvanceAndGetHue(now);
+        var phosphorColor = SKColor.FromHsv(hue, 85, 95);
+
         float centerX = info.Width / 2f;
         float centerY = info.Height / 2f;
         float radius = Math.Min(info.Width, info.Height) * 0.44f;
 
-        DrawGraticule(canvas, centerX, centerY, radius);
+        DrawGraticule(canvas, centerX, centerY, radius, phosphorColor);
 
         float frameMax = 0.0001f;
         for (int i = 0; i < n; i++)
@@ -69,23 +98,40 @@ public sealed class VectorscopeVisualizerPlugin : IVisualizerPlugin
 
         float scale = radius / _runningPeak;
 
-        using var path = new SKPath();
-        float lastX = centerX;
-        float lastY = centerY;
+        var points = new SKPoint[n];
         for (int i = 0; i < n; i++)
         {
             float x = centerX + Math.Clamp(left[i] * scale, -radius, radius);
             float y = centerY - Math.Clamp(right[i] * scale, -radius, radius);
-            if (i == 0)
+            points[i] = new SKPoint(x, y);
+        }
+
+        using var path = new SKPath();
+        path.MoveTo(points[0]);
+        for (int i = 1; i < n; i++)
+        {
+            path.LineTo(points[i]);
+        }
+
+        // Заливка от центра: веер из центральной точки через всю кривую
+        // и обратно в центр — область между центром и следом закрашена
+        // полупрозрачным цветом, как заливка от оси в "Осциллографе".
+        using (var fillPath = new SKPath())
+        {
+            fillPath.MoveTo(centerX, centerY);
+            for (int i = 0; i < n; i++)
             {
-                path.MoveTo(x, y);
+                fillPath.LineTo(points[i]);
             }
-            else
+            fillPath.Close();
+
+            using var fillPaint = new SKPaint
             {
-                path.LineTo(x, y);
-            }
-            lastX = x;
-            lastY = y;
+                IsAntialias = true,
+                Style = SKPaintStyle.Fill,
+                Color = phosphorColor.WithAlpha(55),
+            };
+            canvas.DrawPath(fillPath, fillPaint);
         }
 
         using (var glowPaint = new SKPaint
@@ -95,7 +141,7 @@ public sealed class VectorscopeVisualizerPlugin : IVisualizerPlugin
             StrokeWidth = 6f,
             StrokeCap = SKStrokeCap.Round,
             StrokeJoin = SKStrokeJoin.Round,
-            Color = PhosphorColor.WithAlpha(80),
+            Color = phosphorColor.WithAlpha(80),
             BlendMode = SKBlendMode.Plus,
             ImageFilter = SKImageFilter.CreateBlur(5f, 5f),
         })
@@ -110,7 +156,7 @@ public sealed class VectorscopeVisualizerPlugin : IVisualizerPlugin
             StrokeWidth = 1.8f,
             StrokeCap = SKStrokeCap.Round,
             StrokeJoin = SKStrokeJoin.Round,
-            Color = PhosphorColor.WithAlpha(230),
+            Color = phosphorColor.WithAlpha(230),
         })
         {
             canvas.DrawPath(path, tracePaint);
@@ -119,31 +165,61 @@ public sealed class VectorscopeVisualizerPlugin : IVisualizerPlugin
         // Яркая точка на самом свежем отсчёте — читается как "живая"
         // головка луча, а не просто застывший узор.
         using var headPaint = new SKPaint { IsAntialias = true, Color = new SKColor(255, 255, 255, 235) };
-        canvas.DrawCircle(lastX, lastY, 3.2f, headPaint);
+        canvas.DrawCircle(points[n - 1], 3.2f, headPaint);
     }
 
-    private static void DrawGraticule(SKCanvas canvas, float centerX, float centerY, float radius)
+    private float AdvanceAndGetHue(DateTime now)
+    {
+        if (now >= _color.NextChangeAt)
+        {
+            _color.FromHue = InterpolateHue(_color, now);
+            _color.ToHue = RandomHue();
+            _color.TransitionStart = now;
+            _color.NextChangeAt = now + ChangeInterval;
+        }
+
+        return InterpolateHue(_color, now);
+    }
+
+    private static float InterpolateHue(in ColorState state, DateTime now)
+    {
+        double elapsed = (now - state.TransitionStart).TotalMilliseconds;
+        float t = (float)Math.Clamp(elapsed / TransitionDuration.TotalMilliseconds, 0.0, 1.0);
+        return LerpHue(state.FromHue, state.ToHue, t);
+    }
+
+    private static float LerpHue(float from, float to, float t)
+    {
+        float diff = to - from;
+        diff = ((diff + 540f) % 360f) - 180f;
+        float result = from + diff * t;
+        return ((result % 360f) + 360f) % 360f;
+    }
+
+    private float RandomHue() => (float)(_random.NextDouble() * 360.0);
+
+    private static void DrawGraticule(SKCanvas canvas, float centerX, float centerY, float radius, SKColor color)
     {
         using var circlePaint = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
             StrokeWidth = 1f,
-            Color = PhosphorColor.WithAlpha(35),
+            Color = color.WithAlpha(35),
         };
         using var axisPaint = new SKPaint
         {
             IsAntialias = false,
             Style = SKPaintStyle.Stroke,
             StrokeWidth = 1f,
-            Color = PhosphorColor.WithAlpha(30),
+            Color = color.WithAlpha(30),
         };
         using var diagPaint = new SKPaint
         {
             IsAntialias = true,
             Style = SKPaintStyle.Stroke,
             StrokeWidth = 1f,
-            Color = PhosphorColor.WithAlpha(20),
+            Color = color.WithAlpha(20),
         };
 
         canvas.DrawCircle(centerX, centerY, radius, circlePaint);
