@@ -22,7 +22,7 @@
             <TextBlock Text="Визуализация:" VerticalAlignment="Center" Margin="16,0,6,0" Foreground="White" />
             <ComboBox x:Name="PluginCombo" Width="180" DisplayMemberPath="DisplayName" SelectionChanged="PluginCombo_SelectionChanged" />
 
-            <CheckBox x:Name="AutoCycleCheck" Content="Автосмена" VerticalAlignment="Center" Margin="16,0,6,0" Foreground="White"
+            <CheckBox x:Name="AutoCycleCheck" Content="Автосмена" IsChecked="True" VerticalAlignment="Center" Margin="16,0,6,0" Foreground="White"
                       Checked="AutoCycleCheck_CheckedChanged" Unchecked="AutoCycleCheck_CheckedChanged" />
             <TextBlock Text="сек:" VerticalAlignment="Center" Foreground="White" Margin="6,0,4,0" />
             <TextBox x:Name="AutoCycleIntervalBox" Width="46" Text="10" VerticalAlignment="Center" TextChanged="AutoCycleIntervalBox_TextChanged" />

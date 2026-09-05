@@ -32,7 +32,6 @@ public partial class MainWindow : Window
     // застревать в очереди сколько угодно долго — снаружи это выглядело
     // как "не переключается в некоторых модах".
     private readonly DispatcherTimer _autoCycleTimer = new(DispatcherPriority.Normal);
-    private readonly Random _random = new();
 
     private IAudioSource? _audioSource;
     private SpectrumEngine? _engine;
@@ -40,6 +39,8 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        _autoCycleTimer.Tick += AutoCycleTimer_Tick;
+
         InitializeComponent();
 
         var pluginsPath = Path.Combine(AppContext.BaseDirectory, "Plugins");
@@ -61,8 +62,6 @@ public partial class MainWindow : Window
 
         SourceCombo.SelectedIndex = 0;
         RefreshDeviceList();
-
-        _autoCycleTimer.Tick += AutoCycleTimer_Tick;
 
         CompositionTarget.Rendering += (_, _) => Canvas.InvalidateVisual();
     }
@@ -109,9 +108,10 @@ public partial class MainWindow : Window
         }
     }
 
-    // Случайная автосмена визуализаций: пока включён чекбокс "Автосмена",
-    // каждые N секунд (поле "сек", по умолчанию 10) выбирается случайная
-    // визуализация, отличная от текущей.
+    // Автосмена визуализаций по кругу: пока включён чекбокс "Автосмена"
+    // (включён по умолчанию), каждые N секунд (поле "сек", по умолчанию 10)
+    // включается следующая визуализация из списка, а после последней —
+    // снова первая.
     private void AutoCycleCheck_CheckedChanged(object sender, RoutedEventArgs e)
     {
         if (AutoCycleCheck.IsChecked == true)
@@ -154,13 +154,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        IVisualizerPlugin next;
-        do
-        {
-            next = _plugins[_random.Next(_plugins.Count)];
-        } while (ReferenceEquals(next, _visualizationHost.ActivePlugin));
-
-        PluginCombo.SelectedItem = next;
+        var nextIndex = (PluginCombo.SelectedIndex + 1) % _plugins.Count;
+        PluginCombo.SelectedItem = _plugins[nextIndex];
     }
 
     private void StartStopButton_Click(object sender, RoutedEventArgs e)
