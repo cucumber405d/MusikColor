@@ -11,10 +11,13 @@ namespace MusikColor.Plugins.SpectrogramWaterfall;
 /// по вертикали — время. Новая строка появляется сверху и постепенно
 /// уезжает вниз, пока не исчезнет с экрана.
 ///
-/// Цвет — монохромная ледяная термокарта интенсивности (почти чёрный ->
-/// тёмно-синий -> электрик -> голубовато-белый -> белый), совсем не
-/// похожая на разноцветные палитры остальных плагинов: здесь цвет
-/// говорит только о громкости конкретной частоты в конкретный момент.
+/// Цвет — вся радуга (синий -> голубой -> жёлтый -> красный) по
+/// громкости конкретной частоты. Диапазон яркости калибруется по
+/// входящему сигналу самостоятельно: отслеживается недавний максимум
+/// (растёт мгновенно, если частоты стали громче/шире, и медленно
+/// спадает в тишине), и цвет каждой ячейки берётся относительно этого
+/// плавающего максимума — иначе при типичной громкости почти всё
+/// оставалось бы в тёмно-синей части шкалы.
 /// </summary>
 public sealed class SpectrogramWaterfallVisualizerPlugin : IVisualizerPlugin
 {
@@ -24,20 +27,15 @@ public sealed class SpectrogramWaterfallVisualizerPlugin : IVisualizerPlugin
     private const int HistoryRows = 240;
     private const double RowIntervalMs = 22.0; // ~45 строк/сек, не зависит от Hz монитора
 
-    private static readonly (float Pos, SKColor Color)[] Stops =
-    {
-        (0.00f, new SKColor(2, 2, 10)),
-        (0.28f, new SKColor(10, 20, 90)),
-        (0.55f, new SKColor(20, 90, 200)),
-        (0.80f, new SKColor(120, 200, 255)),
-        (1.00f, new SKColor(255, 255, 255)),
-    };
+    private const float MaxDecayPerRow = 0.995f; // медленный спад плавающего максимума
+    private const float MinRange = 0.03f;        // не даём диапазону схлопнуться до нуля
 
     private SKBitmap? _bitmap;
     private byte[] _pixels = Array.Empty<byte>();
     private int _bandCount;
     private int _rowBytes;
     private DateTime _lastRowTime = DateTime.MinValue;
+    private float _runningMax = MinRange;
 
     public void Init(VisualizerContext context)
     {
@@ -86,6 +84,7 @@ public sealed class SpectrogramWaterfallVisualizerPlugin : IVisualizerPlugin
         _pixels = new byte[_rowBytes * HistoryRows];
         _bandCount = bandCount;
         _lastRowTime = DateTime.MinValue;
+        _runningMax = MinRange;
     }
 
     /// <summary>
@@ -97,9 +96,25 @@ public sealed class SpectrogramWaterfallVisualizerPlugin : IVisualizerPlugin
     {
         Buffer.BlockCopy(_pixels, 0, _pixels, _rowBytes, (HistoryRows - 1) * _rowBytes);
 
+        // Калибровка: если в этом кадре пришла частота громче текущего
+        // плавающего максимума — диапазон расширяется мгновенно. Если
+        // нет — максимум медленно "забывается" (спадает), чтобы после
+        // громкого пика тихая музыка снова красилась во всю радугу, а не
+        // тонула в тёмно-синем из-за старого пика.
+        float frameMax = 0f;
+        for (int i = 0; i < bands.Length; i++)
+        {
+            if (bands[i] > frameMax)
+            {
+                frameMax = bands[i];
+            }
+        }
+        _runningMax = Math.Max(frameMax, Math.Max(_runningMax * MaxDecayPerRow, MinRange));
+
         for (int i = 0; i < _bandCount && i < bands.Length; i++)
         {
-            var color = ColorMapFor(bands[i]);
+            float normalized = bands[i] / _runningMax;
+            var color = ColorMapFor(normalized);
             int offset = i * 4;
             _pixels[offset + 0] = color.Red;
             _pixels[offset + 1] = color.Green;
@@ -112,25 +127,12 @@ public sealed class SpectrogramWaterfallVisualizerPlugin : IVisualizerPlugin
     {
         float v = Math.Clamp(value, 0f, 1f);
 
-        for (int i = 0; i < Stops.Length - 1; i++)
-        {
-            if (v <= Stops[i + 1].Pos)
-            {
-                float span = Stops[i + 1].Pos - Stops[i].Pos;
-                float localT = span > 0f ? (v - Stops[i].Pos) / span : 0f;
-                return LerpColor(Stops[i].Color, Stops[i + 1].Color, localT);
-            }
-        }
-
-        return Stops[^1].Color;
-    }
-
-    private static SKColor LerpColor(SKColor a, SKColor b, float t)
-    {
-        t = Math.Clamp(t, 0f, 1f);
-        byte r = (byte)(a.Red + (b.Red - a.Red) * t);
-        byte g = (byte)(a.Green + (b.Green - a.Green) * t);
-        byte bl = (byte)(a.Blue + (b.Blue - a.Blue) * t);
-        return new SKColor(r, g, bl);
+        // Вся радуга: синий (тихо) -> голубой -> зелёный -> жёлтый ->
+        // красный (громко), плюс яркость растёт вместе с громкостью —
+        // тихие частоты не просто другого цвета, а ещё и тусклее.
+        float hue = (1f - v) * 240f;
+        float saturation = 92f;
+        float brightness = 28f + v * 72f;
+        return SKColor.FromHsv(hue, saturation, brightness);
     }
 }
