@@ -19,12 +19,16 @@ public sealed class SpectrumEngine : IDisposable
     private readonly IVisualizationSink _sink;
 
     private readonly SlidingWindowBuffer _window;
+    private readonly SlidingWindowBuffer _leftWindow;
+    private readonly SlidingWindowBuffer _rightWindow;
     private readonly float[] _hann;
     private readonly float[] _re;
     private readonly float[] _im;
     private readonly float[] _magnitude;
     private readonly float[] _bands;
     private readonly float[] _waveform;
+    private readonly float[] _waveformLeft;
+    private readonly float[] _waveformRight;
     private readonly BandMapper _bandMapper;
     private readonly Normalizer _normalizer;
 
@@ -40,12 +44,16 @@ public sealed class SpectrumEngine : IDisposable
         _sink = sink ?? throw new ArgumentNullException(nameof(sink));
 
         _window = new SlidingWindowBuffer(FftSize);
+        _leftWindow = new SlidingWindowBuffer(FftSize);
+        _rightWindow = new SlidingWindowBuffer(FftSize);
         _hann = WindowFunctions.Hann(FftSize);
         _re = new float[FftSize];
         _im = new float[FftSize];
         _magnitude = new float[FftSize / 2];
         _bands = new float[bandCount];
         _waveform = new float[WaveformSize];
+        _waveformLeft = new float[WaveformSize];
+        _waveformRight = new float[WaveformSize];
 
         _bandMapper = new BandMapper(bandCount, FftSize, source.Format.SampleRate);
         _normalizer = new Normalizer(bandCount);
@@ -60,10 +68,14 @@ public sealed class SpectrumEngine : IDisposable
     private void OnFrameAvailable(object? sender, AudioFrame frame)
     {
         var mono = ToMono(frame.Samples, frame.Format.Channels);
+        var left = ExtractChannel(frame.Samples, frame.Format.Channels, 0);
+        var right = frame.Format.Channels > 1 ? ExtractChannel(frame.Samples, frame.Format.Channels, 1) : left;
 
         lock (_gate)
         {
             _window.Push(mono);
+            _leftWindow.Push(left);
+            _rightWindow.Push(right);
 
             var now = DateTime.UtcNow;
             if (!_window.IsFull || now - _lastPublish < _minPublishInterval)
@@ -104,9 +116,18 @@ public sealed class SpectrumEngine : IDisposable
         _volumeAverage = _volumeAverage <= 0f ? volume : _volumeAverage * 0.95f + volume * 0.05f;
         bool beat = volume > _volumeAverage * 1.6f && volume > 0.02f;
 
-        BuildWaveform(snapshot);
+        BuildWaveform(snapshot, _waveform);
+        BuildWaveform(_leftWindow.Snapshot(), _waveformLeft);
+        BuildWaveform(_rightWindow.Snapshot(), _waveformRight);
 
-        var frame = new FrequencyFrame((float[])_bands.Clone(), Math.Clamp(volume * 6f, 0f, 1f), beat, (float[])_waveform.Clone(), timestamp);
+        var frame = new FrequencyFrame(
+            (float[])_bands.Clone(),
+            Math.Clamp(volume * 6f, 0f, 1f),
+            beat,
+            (float[])_waveform.Clone(),
+            (float[])_waveformLeft.Clone(),
+            (float[])_waveformRight.Clone(),
+            timestamp);
         _sink.Publish(frame);
     }
 
@@ -115,20 +136,20 @@ public sealed class SpectrumEngine : IDisposable
     /// фиксированного размера WaveformSize — усредняя блоки, а не просто
     /// прореживая, чтобы не терять пики и не давать "лесенку" на экране.
     /// </summary>
-    private void BuildWaveform(ReadOnlySpan<float> snapshot)
+    private static void BuildWaveform(ReadOnlySpan<float> snapshot, float[] destination)
     {
-        int step = snapshot.Length / WaveformSize;
+        int step = snapshot.Length / destination.Length;
         if (step <= 0)
         {
             step = 1;
         }
 
-        for (int i = 0; i < WaveformSize; i++)
+        for (int i = 0; i < destination.Length; i++)
         {
             int start = i * step;
             if (start >= snapshot.Length)
             {
-                _waveform[i] = 0f;
+                destination[i] = 0f;
                 continue;
             }
 
@@ -140,8 +161,25 @@ public sealed class SpectrumEngine : IDisposable
                 sum += snapshot[j];
                 count++;
             }
-            _waveform[i] = count > 0 ? sum / count : 0f;
+            destination[i] = count > 0 ? sum / count : 0f;
         }
+    }
+
+    /// <summary>Достаёт один канал из интерливинг-сэмплов (для вектороскопа).</summary>
+    private static float[] ExtractChannel(float[] samples, int channels, int channelIndex)
+    {
+        if (channels <= 1)
+        {
+            return samples;
+        }
+
+        int frames = samples.Length / channels;
+        var result = new float[frames];
+        for (int i = 0; i < frames; i++)
+        {
+            result[i] = samples[i * channels + channelIndex];
+        }
+        return result;
     }
 
     private static float[] ToMono(float[] samples, int channels)

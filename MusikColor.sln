@@ -30,6 +30,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.Spectrog
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.Oscilloscope", "src\MusikColor.Plugins.Oscilloscope\MusikColor.Plugins.Oscilloscope.csproj", "{A1000000-0000-0000-0000-00000000000E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.Vectorscope", "src\MusikColor.Plugins.Vectorscope\MusikColor.Plugins.Vectorscope.csproj", "{A1000000-0000-0000-0000-00000000000F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -92,6 +94,10 @@ Global
 		{A1000000-0000-0000-0000-00000000000E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1000000-0000-0000-0000-00000000000E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1000000-0000-0000-0000-00000000000E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1000000-0000-0000-0000-00000000000F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1000000-0000-0000-0000-00000000000F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1000000-0000-0000-0000-00000000000F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1000000-0000-0000-0000-00000000000F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
