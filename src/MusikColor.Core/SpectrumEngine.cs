@@ -13,6 +13,7 @@ namespace MusikColor.Core;
 public sealed class SpectrumEngine : IDisposable
 {
     private const int FftSize = 2048;
+    private const int WaveformSize = 512; // децимированная форма волны для осциллографа
 
     private readonly IAudioSource _source;
     private readonly IVisualizationSink _sink;
@@ -23,6 +24,7 @@ public sealed class SpectrumEngine : IDisposable
     private readonly float[] _im;
     private readonly float[] _magnitude;
     private readonly float[] _bands;
+    private readonly float[] _waveform;
     private readonly BandMapper _bandMapper;
     private readonly Normalizer _normalizer;
 
@@ -43,6 +45,7 @@ public sealed class SpectrumEngine : IDisposable
         _im = new float[FftSize];
         _magnitude = new float[FftSize / 2];
         _bands = new float[bandCount];
+        _waveform = new float[WaveformSize];
 
         _bandMapper = new BandMapper(bandCount, FftSize, source.Format.SampleRate);
         _normalizer = new Normalizer(bandCount);
@@ -101,8 +104,44 @@ public sealed class SpectrumEngine : IDisposable
         _volumeAverage = _volumeAverage <= 0f ? volume : _volumeAverage * 0.95f + volume * 0.05f;
         bool beat = volume > _volumeAverage * 1.6f && volume > 0.02f;
 
-        var frame = new FrequencyFrame((float[])_bands.Clone(), Math.Clamp(volume * 6f, 0f, 1f), beat, timestamp);
+        BuildWaveform(snapshot);
+
+        var frame = new FrequencyFrame((float[])_bands.Clone(), Math.Clamp(volume * 6f, 0f, 1f), beat, (float[])_waveform.Clone(), timestamp);
         _sink.Publish(frame);
+    }
+
+    /// <summary>
+    /// Децимирует необработанное (до окна Ханна) окно сэмплов до
+    /// фиксированного размера WaveformSize — усредняя блоки, а не просто
+    /// прореживая, чтобы не терять пики и не давать "лесенку" на экране.
+    /// </summary>
+    private void BuildWaveform(ReadOnlySpan<float> snapshot)
+    {
+        int step = snapshot.Length / WaveformSize;
+        if (step <= 0)
+        {
+            step = 1;
+        }
+
+        for (int i = 0; i < WaveformSize; i++)
+        {
+            int start = i * step;
+            if (start >= snapshot.Length)
+            {
+                _waveform[i] = 0f;
+                continue;
+            }
+
+            int end = Math.Min(start + step, snapshot.Length);
+            float sum = 0f;
+            int count = 0;
+            for (int j = start; j < end; j++)
+            {
+                sum += snapshot[j];
+                count++;
+            }
+            _waveform[i] = count > 0 ? sum / count : 0f;
+        }
     }
 
     private static float[] ToMono(float[] samples, int channels)
