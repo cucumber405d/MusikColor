@@ -24,7 +24,14 @@ public partial class MainWindow : Window
 
     private readonly VisualizationHost _visualizationHost = new();
     private readonly List<IVisualizerPlugin> _plugins;
-    private readonly DispatcherTimer _autoCycleTimer = new();
+
+    // Приоритет Normal — выше, чем Render, на котором WPF гоняет
+    // CompositionTarget.Rendering/InvalidateVisual каждый кадр. На
+    // Background (приоритет по умолчанию у DispatcherTimer) тик таймера
+    // в "тяжёлых" по прорисовке визуализациях (много частиц/путей) мог
+    // застревать в очереди сколько угодно долго — снаружи это выглядело
+    // как "не переключается в некоторых модах".
+    private readonly DispatcherTimer _autoCycleTimer = new(DispatcherPriority.Normal);
     private readonly Random _random = new();
 
     private IAudioSource? _audioSource;
@@ -229,7 +236,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        plugin.Render(canvas, info, frame);
+        try
+        {
+            plugin.Render(canvas, info, frame);
+        }
+        catch (Exception ex)
+        {
+            // Ошибка отрисовки в одном плагине не должна ронять весь
+            // рендер-цикл (и тем самым — автосмену): гасим кадр и едем дальше.
+            System.Diagnostics.Debug.WriteLine($"[{plugin.DisplayName}] Render failed: {ex}");
+            canvas.Clear(new SKColor(10, 10, 18));
+        }
     }
 
     protected override void OnClosed(EventArgs e)
