@@ -35,8 +35,10 @@ public sealed class FireworksVisualizerPlugin : IVisualizerPlugin
     private const float LaunchCooldownSeconds = 0.16f;
 
     // Если чётких битов нет дольше этого времени, но звук не тишина —
-    // запускаем ракету сами, чтобы визуализация не простаивала.
-    private const float SilenceFallbackSeconds = 3.5f;
+    // запускаем ракету сами, чтобы визуализация не простаивала. Значение
+    // намеренно небольшое: на записях без выраженного ритма это основной
+    // источник ракет, и по нему видно, что плагин живой, а не завис.
+    private const float SilenceFallbackSeconds = 1.6f;
     private const float SilenceVolumeThreshold = 0.05f;
 
     private const float TrailSparkInterval = 0.018f;
@@ -82,7 +84,11 @@ public sealed class FireworksVisualizerPlugin : IVisualizerPlugin
         _sparks.Clear();
         _lastFrameTime = DateTime.UtcNow;
         _cooldownRemaining = 0f;
-        _silenceTimer = 0f;
+
+        // Взводим запасной таймер сразу на порог срабатывания: при
+        // переключении на плагин первая ракета уходит почти мгновенно,
+        // а не только через SilenceFallbackSeconds после старта.
+        _silenceTimer = SilenceFallbackSeconds;
     }
 
     public void Render(SKCanvas canvas, SKImageInfo info, FrequencyFrame frame)
@@ -308,7 +314,7 @@ public sealed class FireworksVisualizerPlugin : IVisualizerPlugin
         using var shader = SKShader.CreateLinearGradient(
             new SKPoint(0, 0),
             new SKPoint(0, info.Height),
-            new[] { new SKColor(2, 2, 6), new SKColor(8, 6, 18) },
+            new[] { new SKColor(6, 8, 20), new SKColor(16, 12, 36) },
             new[] { 0f, 1f },
             SKShaderTileMode.Clamp);
 

@@ -239,8 +239,30 @@ public partial class MainWindow : Window
         {
             // Ошибка отрисовки в одном плагине не должна ронять весь
             // рендер-цикл (и тем самым — автосмену): гасим кадр и едем дальше.
+            // Сообщение об ошибке рисуем прямо на холсте — иначе сбой
+            // выглядит неотличимо от "просто тёмной" визуализации, и
+            // непонятно, баг это или так и задумано.
             System.Diagnostics.Debug.WriteLine($"[{plugin.DisplayName}] Render failed: {ex}");
             canvas.Clear(new SKColor(10, 10, 18));
+            DrawRenderError(canvas, plugin.DisplayName, ex);
+        }
+    }
+
+    private static void DrawRenderError(SKCanvas canvas, string pluginName, Exception ex)
+    {
+        try
+        {
+            using var paint = new SKPaint
+            {
+                Color = new SKColor(255, 90, 70),
+                IsAntialias = true,
+                TextSize = 16f,
+            };
+            canvas.DrawText($"{pluginName}: {ex.GetType().Name}: {ex.Message}", 16f, 28f, paint);
+        }
+        catch
+        {
+            // Диагностика не должна сама по себе ронять рендер-цикл.
         }
     }
 
