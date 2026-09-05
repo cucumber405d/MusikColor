@@ -34,6 +34,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.Vectorsc
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.ParticleSwarm", "src\MusikColor.Plugins.ParticleSwarm\MusikColor.Plugins.ParticleSwarm.csproj", "{A1000000-0000-0000-0000-000000000010}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-0000F81FA5CB}") = "MusikColor.Plugins.Fireworks", "src\MusikColor.Plugins.Fireworks\MusikColor.Plugins.Fireworks.csproj", "{A1000000-0000-0000-0000-000000000011}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -104,6 +106,10 @@ Global
 		{A1000000-0000-0000-0000-000000000010}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1000000-0000-0000-0000-000000000010}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1000000-0000-0000-0000-000000000010}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1000000-0000-0000-0000-000000000011}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1000000-0000-0000-0000-000000000011}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1000000-0000-0000-0000-000000000011}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1000000-0000-0000-0000-000000000011}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
