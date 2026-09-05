@@ -8,9 +8,14 @@ namespace MusikColor.Plugins.Skyline3D;
 /// "3D-скайлайн-бары" — тот же частотный спектр, но каждая полоса
 /// нарисована как псевдо-3D "здание" (параллелепипед с передней, верхней
 /// и боковой гранью, как в старых 3D-бар-чартах), с окнами-точками и
-/// мягким свечением по громкости. Слева направо (бас -> верха) цвет
-/// зданий плавно уходит от сине-фиолетового к тёплому оранжево-золотому,
-/// как ночной город на закате — зелёный намеренно не используется.
+/// мягким свечением по громкости.
+///
+/// Цвет — закатная гамма (фиолетовый -> пурпурный -> коралловый ->
+/// оранжевый -> золотой), но не гладкий градиент слева направо, а
+/// перемежающийся: соседние здания берут соседние по палитре оттенки
+/// вперемешку (детерминированный псевдослучайный сдвиг по индексу),
+/// как в настоящем городе — где тёплые и холодные окна соседствуют,
+/// а не выстроены плавной радугой. Зелёный намеренно не используется.
 /// </summary>
 public sealed class Skyline3DVisualizerPlugin : IVisualizerPlugin
 {
@@ -20,8 +25,15 @@ public sealed class Skyline3DVisualizerPlugin : IVisualizerPlugin
     private const float AttackSmoothing = 0.5f;
     private const float ReleaseSmoothing = 0.06f;
 
-    private static readonly SKColor LeftColor = new(90, 60, 200);
-    private static readonly SKColor RightColor = new(255, 150, 40);
+    private static readonly SKColor[] DuskPalette =
+    {
+        new(90, 60, 200),   // фиолетовый
+        new(150, 50, 195),  // сиренево-пурпурный
+        new(215, 45, 150),  // малиновый
+        new(255, 90, 100),  // коралловый
+        new(255, 140, 60),  // оранжевый
+        new(255, 195, 60),  // золотой
+    };
 
     private float[] _smoothed = Array.Empty<float>();
 
@@ -90,8 +102,7 @@ public sealed class Skyline3DVisualizerPlugin : IVisualizerPlugin
             float yTop = baseline - height;
             float yBottom = baseline;
 
-            float t = n > 1 ? (float)i / (n - 1) : 0f;
-            var baseColor = LerpColor(LeftColor, RightColor, t);
+            var baseColor = PaletteColorFor(i, n);
 
             var frontColor = Shade(baseColor, 0.55f);
             var sideColor = Shade(baseColor, 0.78f);
@@ -179,13 +190,31 @@ public sealed class Skyline3DVisualizerPlugin : IVisualizerPlugin
         canvas.DrawRect(new SKRect(0, 0, info.Width, info.Height), paint);
     }
 
-    private static SKColor LerpColor(SKColor a, SKColor b, float t)
+    /// <summary>
+    /// Позиция здания задаёт "макро"-положение в закатной палитре
+    /// (слева теплее к фиолетовому, справа — к золотому), а
+    /// детерминированный псевдослучайный сдвиг по индексу перемешивает
+    /// соседние здания между собой, чтобы цвет не сливался в гладкую
+    /// радугу, а перемежался, как настоящая городская застройка.
+    /// </summary>
+    private static SKColor PaletteColorFor(int index, int count)
     {
-        t = Math.Clamp(t, 0f, 1f);
-        byte r = (byte)(a.Red + (b.Red - a.Red) * t);
-        byte g = (byte)(a.Green + (b.Green - a.Green) * t);
-        byte bl = (byte)(a.Blue + (b.Blue - a.Blue) * t);
-        return new SKColor(r, g, bl);
+        float t = count > 1 ? (float)index / (count - 1) : 0f;
+        float posIndex = t * (DuskPalette.Length - 1);
+        int baseIdx = (int)MathF.Round(posIndex);
+
+        int jitter = (Hash(index) % 3) - 1; // -1, 0 или +1
+        int idx = Math.Clamp(baseIdx + jitter, 0, DuskPalette.Length - 1);
+        return DuskPalette[idx];
+    }
+
+    private static int Hash(int i)
+    {
+        unchecked
+        {
+            uint h = (uint)i * 2654435761u;
+            return (int)(h & 0x7fffffff);
+        }
     }
 
     private static SKColor Shade(SKColor color, float factor)
